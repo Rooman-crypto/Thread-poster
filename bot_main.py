@@ -6,8 +6,8 @@ from telegram_utils import send_2ch_media_group
 from state import load_state, save_state, load_post_map, save_post_map
 import main
 
-chat_id = -1003703344159
-bot_token = '8395755840:AAFVD21O_P-yfmLkffqVmpKDdegXmipcXYE'
+chat_id = 
+bot_token = 
 errors = ("webpage_media_empty","webpage_curl_failed")
 
 async def safe_send(func, *args, **kwargs):
