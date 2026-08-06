@@ -23,22 +23,3 @@ def clean_comment(comment_html):
     text = re.sub(r'<[^>]+>', '', text)
     text = html.unescape(text)
     return text.strip()
-
-# --- Usage ---
-board = 'fag'
-thread_id = 27574729
-
-data = get_thread(board, thread_id)
-posts = data['threads'][0]['posts']
-
-#for i, post in enumerate(posts):
-#    comment = clean_comment(post.get('comment', ''))
-#    timestamp = datetime.datetime.fromtimestamp(int(post['timestamp'])
-#                                       ).strftime('%Y-%m-%d %H:%M:%S')
-#    print(f"{timestamp} | #{post['num']} | {post.get('number')}")
-#    print(f"{comment}")
-#    print()
-#    if post.get('files'):
-#        for f in post['files']:
-#            print(f"📎 https://2ch.org{f['path']}")#for post in range(thread['posts_count']):
-#    print()
