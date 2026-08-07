@@ -1,192 +1,77 @@
 import asyncio
-import datetime
 from telegram.ext import ApplicationBuilder
-from telegram.error import RetryAfter, BadRequest, TimedOut
-from telegram_utils import send_2ch_media_group
-from telegram import LinkPreviewOptions
-from state import load_state, save_state
-import main
+from state import load_state, save_state,remember_post, remember_links
+import board_service
+from telegram_service import update_reply_links, pin_OP,publish_post
+from config import BOT_TOKEN, CHAT_ID, BOARD, THREAD_ID, FIRST_LOOP_DELAY, LOOP_DELAY, POLL_INTERVAL
 
-
-
-chat_id = -
-bot_token = ''
-
-errors = ("webpage_media_empty","webpage_curl_failed")
-
-async def safe_send(func, *args, **kwargs):
-    """Send with automatic flood control retry."""
-    while True:
-        try:
-            return await func(*args, **kwargs)
-        except RetryAfter as e:
-            print(f"Rate limited. Sleeping {e.retry_after}s...")
-            await asyncio.sleep(e.retry_after)
-        except BadRequest as e:
-            if any(err in str(e) for err in errors):
-                raise  # Let caller handle this
-            print(f"BadRequest: {e}")
-            raise
-        except TimedOut:
-            print("Timed Out")
-            continue
-async def send_post_message(app, chat_id, post, text, timestamp, post_map):
-    message = (
-        f"{timestamp} | #{post['num']} | {post.get('number')}\n\n"
-        f"{text[:3500]}"
-    )
-
-    message_sent = await safe_send(
-        app.bot.send_message,
-        chat_id=chat_id,
-        text=message,
-    )
-
-    print(message_sent.message_id)
-    print(message_sent.link)
-
-    post_map[post["num"]] = message_sent.link
-
-    return message_sent
+chat_id = CHAT_ID
+bot_token = BOT_TOKEN
+board = BOARD
+thread_id = THREAD_ID
 
 async def monitor_2ch(app):
-    board = 'fag'
-    thread_id = 27574729
-    seen_posts, post_map, message_data = load_state()
-    is_first_loop = len(seen_posts) == 0
+    seen_posts, post_map, message_data, saved_start = load_state()
+    current_start = app.bot_data["start_post"]
+    is_first_loop = len(seen_posts) == 0  # only true if nothing was ever sent
 
     while True:
-        data = await asyncio.to_thread(main.get_thread, board, thread_id)
+        data = await asyncio.to_thread(board_service.get_thread, board, thread_id)
         posts = data['threads'][0]['posts']
 
         for post in posts:
-            save_state(seen_posts,post_map,message_data)
             post_num = post['num']
 
-            if post_num in seen_posts:
+            # Skip silently — don't pollute seen_posts
+            if post['number'] < current_start:
                 continue
 
-            seen_posts.add(post_num)
+            # Already sent — skip
+            if post_num in seen_posts:
+                continue
             has_replies = False
-            text = main.clean_comment(post.get('comment', ''))
-            text,has_replies,reply_nums = main.linkify_replies(text, post_map)
-            timestamp = datetime.datetime.fromtimestamp(
-                int(post['timestamp'])
-            ).strftime('%Y-%m-%d %H:%M:%S')
+            text = board_service.clean_comment(post.get('comment', ''))
+            text,has_replies,reply_nums = board_service.linkify_replies(text, post_map)
+            message_sent, all_links, telegram_text = await publish_post(app,chat_id,post,text)
             files = post.get('files') or []
             if files:
-                link = f"https://2ch.org/{board}/res/{thread_id}.html#{post['num']}"
-                caption = f"{timestamp} | #{post['num']} | {post.get('number')}\n\n{text[:900]}"
-                try:
-                    all_links= []
-                    message_sent = await safe_send(send_2ch_media_group, app, chat_id, files[:10], caption=caption)
-                    for msg in message_sent: all_links.append(msg.link)
-                    message_data[str(post.get('num'))] = {
-                    "tg_message_id": message_sent[0].message_id,
-                    "text": caption,
-                    "type": "Media",
-                    "files": post['files'],
-                    }
-                    if len(files) > 10:
-                        message_sent = await safe_send(send_2ch_media_group, app,
-                                       chat_id, files[10:],reply_to_message_id=message_sent[0].message_id,
-                                        caption=None)
-                        for msg in message_sent: all_links.append(msg.link)
-                    post_map[post.get('num')] = all_links
-
-                except BadRequest as e: # Errors handling
-                    if any(err in str(e) for err in errors):
-                        links = "\n".join(f"https://2ch.org{f['path']}" for f in files)
-                        text = f"{caption}\n\nFailed to load media: \n\n{links}.\n\n Error: {str(e)}"
-                        message_sent = await safe_send(app.bot.send_message, chat_id=chat_id,
-                                       link_preview_options=LinkPreviewOptions(url=f"https://2ch.org{files[0]['path']}",
-                                       is_disabled=False),
-                                       text=text)
-                        post_map[post.get('num')] = [message_sent.link]
-
-                        message_data[str(post.get('num'))] = {
-                        "tg_message_id": message_sent.message_id,
-                        "text": text,
-                        "type": "Text",
-                        "files":post['files'],
-                        }
-
-                    else:
-                        raise
+                message_id = message_sent[0].message_id
+                msg_type = "Media"
             else:
-                message = f"{timestamp} | #{post['num']} | {post.get('number')}\n\n{text[:3500]}"
-                message_sent= await safe_send(app.bot.send_message, chat_id=chat_id, text=message,link_preview_options=LinkPreviewOptions(is_disabled=True))
-                print(message_sent.message_id)
-                print(message_sent.link)
-                post_map[post.get('num')] = [message_sent.link]
-                message_data[str(post.get('num'))] = {
-                "tg_message_id": message_sent.message_id,
-                "text": message,
-                "type": "Text",
-                "files":post['files'],
-                }
+                message_id = message_sent.message_id
+                msg_type = "Text"
+
+            remember_post(post,message_sent,message_data,telegram_text,message_id,msg_type)
+            remember_links(post_map,post,all_links)
 
             if has_replies:
-                print(reply_nums)
-                if isinstance(message_sent,tuple):
-                    for i in reply_nums:
-                        tg_post_id = message_data[i]["tg_message_id"]
-                        tg_post_text = message_data[i]["text"] 
-                        if message_data[i]["type"] == "Media":
-                            new_caption = f"{tg_post_text}\n\n{message_sent[0].link}"
-                            await safe_send(
-                                app.bot.edit_message_caption,
-                                chat_id=chat_id,
-                                message_id=tg_post_id,
-                                caption=new_caption,
-                            )
-                        else:
-                            new_text = f"{tg_post_text}\n\n{message_sent[0].link}"
-                            await safe_send(
-                                app.bot.edit_message_text,
-                                chat_id=chat_id,
-                                message_id=tg_post_id,
-                                text=new_text,
-                                )
-                        
-                else:
-                    for i in reply_nums:
-                        tg_post_id = message_data[i]["tg_message_id"]
-                        tg_post_text = message_data[i]["text"] 
-                        if message_data[i]["type"] == "Media":
-                            new_caption = f"{tg_post_text}\n\n{message_sent.link}"
-                            await safe_send(
-                                app.bot.edit_message_caption,
-                                chat_id=chat_id,
-                                message_id=tg_post_id,
-                                caption=new_caption,
-                                )
-                        else:
-                            new_text = f"{tg_post_text}\n\n{message_sent.link}"
-                            await safe_send(
-                                app.bot.edit_message_text,
-                                chat_id=chat_id,
-                                message_id=tg_post_id,
-                                text=new_text,
-                                )
-            print(f"{message if not files else caption}")
-            print()
+                for reply in reply_nums:
+                    message_data[reply]['text'] = await update_reply_links(app,chat_id,reply,message_data,all_links[0])
 
+            print(telegram_text)
+            print()
             if post.get('files'):
                 for f in post['files']:
                     print(f"📎https://2ch.org{f['path']}")
             print()
             if post.get('number') == 1:
-                await app.bot.pin_chat_message(chat_id=chat_id, message_id=message_sent[0].message_id)
-            await asyncio.sleep(3 if is_first_loop else 1.5)
+                await pin_OP(app,chat_id,message_sent[0].message_id)
+            seen_posts.add(post_num)
+            save_state(seen_posts,post_map,message_data,start_post)
+            await asyncio.sleep(FIRST_LOOP_DELAY if is_first_loop else LOOP_DELAY)
 
 
         is_first_loop = False
-        await asyncio.sleep(15)
+        await asyncio.sleep(POLL_INTERVAL)
 
 
 async def on_start(app):
     asyncio.create_task(monitor_2ch(app))
+start_post = int(
+    input(f"Select start post (0-{board_service.get_thread(board, thread_id)['posts_count']}, 0 = all): ")
+)
 
 app = ApplicationBuilder().token(bot_token).post_init(on_start).build()
+
+app.bot_data["start_post"] = start_post
 app.run_polling()
