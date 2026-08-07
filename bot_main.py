@@ -88,8 +88,8 @@ async def monitor_2ch(app):
                     if any(err in str(e) for err in errors):
                         links = "\n".join(f"https://2ch.org{f['path']}" for f in files)
                         message_sent = await safe_send(app.bot.send_message, chat_id=chat_id,
-                                       #link_preview_options=LinkPreviewOptions(url=str(links),
-                                       #is_disabled=False),
+                                       link_preview_options=LinkPreviewOptions(url=str(links),
+                                       is_disabled=False),
                                        text=f"{caption}\n\nFailed to load media: \n\n{links}.\n\n Error: {str(e)}")
                         post_map[post.get('num')] = [message_sent.link]
                     else:
