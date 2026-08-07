@@ -48,8 +48,8 @@ async def send_post_message(app, chat_id, post, text, timestamp, post_map):
     return message_sent
 
 async def monitor_2ch(app):
-    board = 'fag'
-    thread_id = 27574729
+    board = 
+    thread_id = 
     seen_posts, post_map = load_state()
     is_first_loop = len(seen_posts) == 0
 
