@@ -25,20 +25,30 @@ def clean_comment(comment_html):
     return text.strip()
 
 def linkify_replies(text, post_map):
-    """Find >>NUMBER references and append Telegram link if that post was sent."""
+    """Find >>NUMBER references and append Telegram link if that post was sent.
+    
+    Returns:
+        (new_text, was_modified, linked_nums)
+        linked_nums is a list of post numbers (as strings) that were found in post_map
+    """
+    was_modified = False
+    linked_nums = []
+    
     def replace(match):
+        nonlocal was_modified
         num_str = match.group(1)
-        # post_map keys might be int (in memory) or str (loaded from JSON)
+        
         link = post_map.get(num_str)
         if link is None:
             link = post_map.get(int(num_str))
         
         if link:
-            # link is always a list now — take the first Telegram message URL
+            was_modified = True
+            linked_nums.append(num_str)
             return f"{match.group(0)} {link[0]}"
         
-        # Not in post_map yet — keep original >>NUMBER
         return match.group(0)
     
-    return re.sub(r'>>(\d+)', replace, text)
+    new_text = re.sub(r'>>(\d+)', replace, text)
+    return new_text, was_modified, list(dict.fromkeys(linked_nums))
 

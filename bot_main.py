@@ -7,8 +7,10 @@ from telegram import LinkPreviewOptions
 from state import load_state, save_state
 import main
 
-chat_id = 
-bot_token = 
+
+
+chat_id = -
+bot_token = ''
 
 errors = ("webpage_media_empty","webpage_curl_failed")
 
@@ -48,9 +50,9 @@ async def send_post_message(app, chat_id, post, text, timestamp, post_map):
     return message_sent
 
 async def monitor_2ch(app):
-    board = 
-    thread_id = 
-    seen_posts, post_map = load_state()
+    board = 'fag'
+    thread_id = 27574729
+    seen_posts, post_map, message_data = load_state()
     is_first_loop = len(seen_posts) == 0
 
     while True:
@@ -58,14 +60,16 @@ async def monitor_2ch(app):
         posts = data['threads'][0]['posts']
 
         for post in posts:
+            save_state(seen_posts,post_map,message_data)
             post_num = post['num']
 
             if post_num in seen_posts:
                 continue
 
             seen_posts.add(post_num)
+            has_replies = False
             text = main.clean_comment(post.get('comment', ''))
-            text = main.linkify_replies(text, post_map)
+            text,has_replies,reply_nums = main.linkify_replies(text, post_map)
             timestamp = datetime.datetime.fromtimestamp(
                 int(post['timestamp'])
             ).strftime('%Y-%m-%d %H:%M:%S')
@@ -77,6 +81,12 @@ async def monitor_2ch(app):
                     all_links= []
                     message_sent = await safe_send(send_2ch_media_group, app, chat_id, files[:10], caption=caption)
                     for msg in message_sent: all_links.append(msg.link)
+                    message_data[str(post.get('num'))] = {
+                    "tg_message_id": message_sent[0].message_id,
+                    "text": caption,
+                    "type": "Media",
+                    "files": post['files'],
+                    }
                     if len(files) > 10:
                         message_sent = await safe_send(send_2ch_media_group, app,
                                        chat_id, files[10:],reply_to_message_id=message_sent[0].message_id,
@@ -87,11 +97,20 @@ async def monitor_2ch(app):
                 except BadRequest as e: # Errors handling
                     if any(err in str(e) for err in errors):
                         links = "\n".join(f"https://2ch.org{f['path']}" for f in files)
+                        text = f"{caption}\n\nFailed to load media: \n\n{links}.\n\n Error: {str(e)}"
                         message_sent = await safe_send(app.bot.send_message, chat_id=chat_id,
-                                       link_preview_options=LinkPreviewOptions(url=str(links),
+                                       link_preview_options=LinkPreviewOptions(url=f"https://2ch.org{files[0]['path']}",
                                        is_disabled=False),
-                                       text=f"{caption}\n\nFailed to load media: \n\n{links}.\n\n Error: {str(e)}")
+                                       text=text)
                         post_map[post.get('num')] = [message_sent.link]
+
+                        message_data[str(post.get('num'))] = {
+                        "tg_message_id": message_sent.message_id,
+                        "text": text,
+                        "type": "Text",
+                        "files":post['files'],
+                        }
+
                     else:
                         raise
             else:
@@ -100,10 +119,56 @@ async def monitor_2ch(app):
                 print(message_sent.message_id)
                 print(message_sent.link)
                 post_map[post.get('num')] = [message_sent.link]
+                message_data[str(post.get('num'))] = {
+                "tg_message_id": message_sent.message_id,
+                "text": message,
+                "type": "Text",
+                "files":post['files'],
+                }
 
-            save_state(seen_posts,post_map)
-            await asyncio.sleep(3 if is_first_loop else 1.5)
-
+            if has_replies:
+                print(reply_nums)
+                if isinstance(message_sent,tuple):
+                    for i in reply_nums:
+                        tg_post_id = message_data[i]["tg_message_id"]
+                        tg_post_text = message_data[i]["text"] 
+                        if message_data[i]["type"] == "Media":
+                            new_caption = f"{tg_post_text}\n\n{message_sent[0].link}"
+                            await safe_send(
+                                app.bot.edit_message_caption,
+                                chat_id=chat_id,
+                                message_id=tg_post_id,
+                                caption=new_caption,
+                            )
+                        else:
+                            new_text = f"{tg_post_text}\n\n{message_sent[0].link}"
+                            await safe_send(
+                                app.bot.edit_message_text,
+                                chat_id=chat_id,
+                                message_id=tg_post_id,
+                                text=new_text,
+                                )
+                        
+                else:
+                    for i in reply_nums:
+                        tg_post_id = message_data[i]["tg_message_id"]
+                        tg_post_text = message_data[i]["text"] 
+                        if message_data[i]["type"] == "Media":
+                            new_caption = f"{tg_post_text}\n\n{message_sent.link}"
+                            await safe_send(
+                                app.bot.edit_message_caption,
+                                chat_id=chat_id,
+                                message_id=tg_post_id,
+                                caption=new_caption,
+                                )
+                        else:
+                            new_text = f"{tg_post_text}\n\n{message_sent.link}"
+                            await safe_send(
+                                app.bot.edit_message_text,
+                                chat_id=chat_id,
+                                message_id=tg_post_id,
+                                text=new_text,
+                                )
             print(f"{message if not files else caption}")
             print()
 
@@ -113,6 +178,8 @@ async def monitor_2ch(app):
             print()
             if post.get('number') == 1:
                 await app.bot.pin_chat_message(chat_id=chat_id, message_id=message_sent[0].message_id)
+            await asyncio.sleep(3 if is_first_loop else 1.5)
+
 
         is_first_loop = False
         await asyncio.sleep(15)
