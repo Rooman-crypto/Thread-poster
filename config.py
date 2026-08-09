@@ -2,6 +2,7 @@
 
 BOT_TOKEN = ""
 CHAT_ID = -
+OWNER_CHAT_ID = 
 
 BOARD = ""
 THREAD_ID = 
