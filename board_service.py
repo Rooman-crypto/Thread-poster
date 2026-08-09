@@ -51,3 +51,23 @@ def linkify_replies(text, post_map):
     new_text = re.sub(r'>>(\d+)', replace, text)
     return new_text, was_modified, list(dict.fromkeys(linked_nums))
 
+def extract_new_thread_candidates(comment_text, current_thread_id):
+    if not comment_text:
+        return []
+
+    current = str(current_thread_id)
+
+    nums = re.findall(r'>\s*>\s*(\d+)\s*\(OP\)', comment_text)
+
+    candidates = []
+    seen = set()
+
+    for num in nums:
+        if num == current:
+            continue
+
+        if num not in seen:
+            seen.add(num)
+            candidates.append(num)
+
+    return candidates
