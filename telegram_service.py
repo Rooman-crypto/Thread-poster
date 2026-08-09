@@ -5,6 +5,14 @@ from telegram import InputMediaPhoto, InputMediaVideo, InputMediaDocument
 from telegram.error import RetryAfter, BadRequest, TimedOut
 from telegram import LinkPreviewOptions
 from telegram.error import BadRequest
+from dataclasses import dataclass
+
+@dataclass
+class PublishedPost:
+    message_id: int
+    text: str
+    links: list[str]
+    message_type: str
 
 MEDIA_FALLBACK_ERRORS = (
     "webpage_media_empty",
@@ -34,10 +42,10 @@ async def publish_post(app,chat_id,post,text):
     files = post.get('files') or []
     timestamp = datetime.datetime.fromtimestamp(int
     (post['timestamp'])).strftime('%Y-%m-%d %H:%M:%S')
+    all_links = []
     if files:
         telegram_text = f"{timestamp} | №{post['num']} | {post.get('number')}\n\n{text[:900]}"
         try:
-            all_links = []
             if len(files) > 10:
                     first_group = await safe_send(send_2ch_media_group,app,
                                                    chat_id,files[:10],
@@ -56,11 +64,11 @@ async def publish_post(app,chat_id,post,text):
                                                caption=telegram_text
                                                )
                 all_links.extend(msg.link for msg in telegram_group)
-            return telegram_group, all_links, telegram_text
+            return PublishedPost(telegram_group[0].message_id,telegram_text,all_links,'Media')
         except BadRequest as e:
             if any(err in str(e) for err in MEDIA_FALLBACK_ERRORS):
                 fallback_sent = await publish_fallback_post(app,chat_id,telegram_text,files,e)
-                return fallback_sent, [fallback_sent[0].link], telegram_text
+                return PublishedPost(fallback_sent[0].message_id,telegram_text,[fallback_sent[0].link],'text')
             else:
                 raise
     else:
@@ -69,12 +77,13 @@ async def publish_post(app,chat_id,post,text):
                                       chat_id=chat_id,
                                       text=telegram_text,link_preview_options=
                                       LinkPreviewOptions(is_disabled=True))
-        return message_sent, [message_sent.link], telegram_text
+        return PublishedPost(message_sent.message_id,telegram_text,[message_sent.link],'text')
 
 
 
 
 async def publish_fallback_post(app,chat_id,telegram_message,files,error):
+    # Add non-failed messages check
     links = "\n".join(f"https://2ch.org{f['path']}" for f in files)
     fallback_message = f"{telegram_message}\n\nError: {str(error)}\n\nFailed to load media:\n\n{links}"
     fallback_sent = await safe_send(app.bot.send_message,
