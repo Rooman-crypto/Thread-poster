@@ -72,14 +72,14 @@ async def monitor_2ch(app):
             False,
         )
 
-        print(
-            "MONITOR USING:",
-            thread_id,
-            "START:",
-            current_start,
-            "REPUBLISH:",
-            start_requested,
-        )
+        #print(
+        #    "MONITOR USING:",
+        #    thread_id,
+        #    "START:",
+        #    current_start,
+        #    "REPUBLISH:",
+        #    start_requested,
+        #)
 
         data = await asyncio.to_thread(
             board_service.get_thread,
@@ -112,7 +112,7 @@ async def monitor_2ch(app):
                 post.get("comment", "")
             )
 
-            text, has_replies, reply_nums = (
+            text, reply_nums = (
                 board_service.linkify_replies(
                     text,
                     post_map,
@@ -151,6 +151,7 @@ async def monitor_2ch(app):
                         reply,
                         message_data,
                         published.links[0],
+                        post_num,
                     )
 
                     if replied_text is not None:

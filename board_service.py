@@ -57,18 +57,7 @@ def clean_comment(comment_html):
 
     return text.strip()
 
-
 def linkify_replies(text, post_map):
-    """
-    Find >>NUMBER references and append Telegram link
-    if that post has already been published.
-
-    Returns:
-        new_text
-        was_modified
-        linked_nums
-    """
-
     was_modified = False
     linked_nums = []
 
@@ -86,9 +75,7 @@ def linkify_replies(text, post_map):
             was_modified = True
             linked_nums.append(num_str)
 
-            return (
-                f"{match.group(0)} {link[0]}"
-            )
+            return f"№{num_str}\n{link[0]}\n"
 
         return match.group(0)
 
@@ -100,11 +87,8 @@ def linkify_replies(text, post_map):
 
     return (
         new_text,
-        was_modified,
         list(dict.fromkeys(linked_nums)),
     )
-
-
 def extract_new_thread_candidates(
     comment_text,
     current_thread_id,
