@@ -102,7 +102,7 @@ async def update_reply_links(app, chat_id, reply, message_data, reply_link,post_
     
     tg_message_id = message_data[reply]["tg_message_id"]
     message_to_reply = message_data[reply]["text"]
-    edited_message = f"{message_to_reply}\n\n{reply_link}\n\n №{post_num}"
+    edited_message = f"{message_to_reply}\n\n{reply_link}\n№{post_num}"
     
     # Guard: caption/text length limits
     limit = 1024 if message_data[reply]['type'] == 'Media' else 4096
